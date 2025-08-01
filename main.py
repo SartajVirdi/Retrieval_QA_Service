@@ -1,21 +1,19 @@
-# -*- coding: utf-8 -*-
-
 from flask import Flask, request, jsonify
-import cohere
 import fitz  # PyMuPDF
-import faiss
-import numpy as np
 import os
 import re
 import glob
-import time
+import numpy as np
+import faiss
+import google.generativeai as genai
 
+# Initialize Flask
 app = Flask(__name__)
 
-# Load API key from environment variable
-co = cohere.Client(os.getenv("COHERE_API_KEY"))
+# Set Gemini API key
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# ✅ Load and combine all PDFs from the 'policies/' folder
+# Load and combine all PDF text
 def load_all_pdfs(folder="policies"):
     combined_text = ""
     for filepath in glob.glob(os.path.join(folder, "*.pdf")):
@@ -24,25 +22,33 @@ def load_all_pdfs(folder="policies"):
             combined_text += page.get_text() + "\n"
     return combined_text
 
-# ✅ Smarter chunking with larger context and overlap
-def split_text(text, max_tokens=500, overlap=100):
+# Chunking logic: larger, smarter chunks with overlap
+def split_text(text, max_words=300, overlap=75):
     sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []
     chunk = []
-    tokens = 0
+    length = 0
+
     for sentence in sentences:
-        sentence_tokens = len(sentence.split())
-        if tokens + sentence_tokens <= max_tokens:
+        words = sentence.split()
+        if length + len(words) <= max_words:
             chunk.append(sentence)
-            tokens += sentence_tokens
+            length += len(words)
         else:
             chunks.append(" ".join(chunk))
-            chunk = chunk[-(overlap // 5):] + [sentence]  # maintain overlap
-            tokens = sum(len(s.split()) for s in chunk)
+            chunk = chunk[-overlap:] + [sentence]
+            length = sum(len(s.split()) for s in chunk)
     if chunk:
         chunks.append(" ".join(chunk))
     return chunks
 
+# Embed using Gemini
+def embed_texts(chunks):
+    model = genai.GenerativeModel('embedding-001')
+    response = model.embed_content(content=chunks, task_type="retrieval_document")
+    return np.array(response["embedding"]).astype("float32")
+
+# Flask webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -51,55 +57,38 @@ def webhook():
 
     query = data["query"]
 
-    # ✅ Load and chunk combined PDF content
     try:
         text = load_all_pdfs()
+        chunks = split_text(text)
     except Exception as e:
-        return jsonify({"error": f"Failed to load PDFs: {e}"}), 500
+        return jsonify({"error": f"PDF loading failed: {e}"}), 500
 
-    chunks = split_text(text)
-
-    # ✅ Embed all chunks with Cohere in batches
+    # Embeddings & FAISS
     try:
-        embeddings = []
-        batch_size = 10
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            embed_response = co.embed(
-                texts=batch,
-                model="embed-english-v3.0",
-                input_type="search_document"
-            )
-            embeddings.extend(embed_response.embeddings)
-            time.sleep(2)  # avoid hitting rate limit
-        embeddings = np.array(embeddings).astype("float32")
-    except Exception as e:
-        return jsonify({"error": f"Embedding error in batch {i // batch_size + 1}: {e}"}), 500
+        model = genai.GenerativeModel('embedding-001')
+        chunk_embeds = [model.embed_content(c, task_type="retrieval_document")["embedding"] for c in chunks]
+        chunk_embeds = np.array(chunk_embeds).astype("float32")
 
-    # ✅ FAISS Index
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
+        index = faiss.IndexFlatL2(chunk_embeds.shape[1])
+        index.add(chunk_embeds)
 
-    # ✅ Embed the query and perform semantic search
-    try:
-        query_embed = co.embed(texts=[query], model="embed-english-v3.0", input_type="search_query").embeddings[0]
+        # Embed query
+        query_embed = model.embed_content(query, task_type="retrieval_query")["embedding"]
         D, I = index.search(np.array([query_embed], dtype="float32"), k=5)
-        retrieved = [chunks[i] for i in I[0]]
+        context = "\n".join([chunks[i] for i in I[0]])
     except Exception as e:
-        return jsonify({"error": f"Search error: {e}"}), 500
+        return jsonify({"error": f"Embedding error: {e}"}), 500
 
-    context = "\n".join(retrieved)
-
-    # ✅ Ask LLM with context
+    # Call Gemini Pro
     try:
-        response = co.chat(
-            model='command-r-plus',
-            message=query,
-            documents=[{"text": context}]
-        )
+        chat_model = genai.GenerativeModel("gemini-pro")
+        chat = chat_model.start_chat()
+        prompt = f"Based on the following content, answer the question:\n\nContent:\n{context}\n\nQuestion: {query}\nAnswer:"
+        response = chat.send_message(prompt)
         return jsonify({"response": response.text.strip()})
     except Exception as e:
-        return jsonify({"error": f"LLM response error: {e}"}), 500
+        return jsonify({"error": f"Gemini response error: {e}"}), 500
 
+# Run the app
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
