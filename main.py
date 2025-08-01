@@ -51,8 +51,8 @@ class QueryRequest(BaseModel):
 def startup_event():
     ingest()
 
-@app.post("/query")
-def query_docs(request: QueryRequest):
+@app.post("/api/v1/hackrx/run")
+def hackrx_webhook(request: QueryRequest):
     query_text = request.query
     results = collection.query(query_texts=[query_text], n_results=3)
 
