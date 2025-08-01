@@ -1,82 +1,61 @@
 import os
-import fitz  # PyMuPDF
 import uuid
+import fitz
 import time
 import cohere
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
 from chromadb.utils.embedding_functions import CohereEmbeddingFunction
 import chromadb
 
-# Load Cohere API key from environment variable
+# Load API key
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 assert COHERE_API_KEY, "COHERE_API_KEY not found in environment variables"
 
-# Initialize Cohere embedding function
+# Initialize components
 embedder = CohereEmbeddingFunction(api_key=COHERE_API_KEY)
-
-# Initialize Chroma client
 chroma_client = chromadb.Client()
-chroma_client.heartbeat()
-
-# Create or get collection
 collection = chroma_client.get_or_create_collection("policy_docs", embedding_function=embedder)
+co = cohere.Client(COHERE_API_KEY)
 
-# Ingest all PDF files from the 'policies/' folder
+# Ingest documents
 def ingest():
     folder_path = "policies"
     pdf_files = [f for f in os.listdir(folder_path) if f.endswith(".pdf")]
-
-    if not pdf_files:
-        print("No PDF files found in 'policies/' folder.")
-        return {"status": "No PDF files found."}
-
-    batch_size = 5  # Lower batch size to avoid token overload
-    delay_seconds = 2  # Time to wait between batches
-
     for pdf_file in pdf_files:
-        print(f"Processing: {pdf_file}")
         pdf_path = os.path.join(folder_path, pdf_file)
         doc = fitz.open(pdf_path)
-
         docs, meta, ids = [], [], []
         for page in doc:
             text = page.get_text().strip()
             if len(text) < 50:
-                continue  # skip very short pages
+                continue
             docs.append(text)
             meta.append({"source": pdf_file})
             ids.append(str(uuid.uuid4()))
+        for i in range(0, len(docs), 5):
+            collection.add(
+                documents=docs[i:i+5],
+                metadatas=meta[i:i+5],
+                ids=ids[i:i+5]
+            )
+            time.sleep(2)
 
-        # Add to collection in smaller batches
-        for i in range(0, len(docs), batch_size):
-            try:
-                collection.add(
-                    documents=docs[i:i+batch_size],
-                    metadatas=meta[i:i+batch_size],
-                    ids=ids[i:i+batch_size]
-                )
-                print(f"Uploaded batch {i//batch_size + 1} of {pdf_file}")
-                time.sleep(delay_seconds)
-            except Exception as e:
-                print(f"Error uploading batch {i//batch_size + 1} of {pdf_file}: {e}")
-
-    return {"status": "Ingestion completed."}
-
-
-# FastAPI app setup
+# Initialize app
 app = FastAPI()
 
-@app.get("/")
-def root():
-    return {"message": "PDF Q&A API is running."}
+class QueryRequest(BaseModel):
+    query: str
 
-@app.get("/ingest")
-def run_ingestion():
-    return ingest()
-
-
-# Port binding block for Render
-if __name__ == "__main__":
-    import uvicorn
+@app.on_event("startup")
+def startup_event():
     ingest()
-    uvicorn.run("main:app", host="0.0.0.0", port=10000)
+
+@app.post("/query")
+def query_docs(request: QueryRequest):
+    query_text = request.query
+    results = collection.query(query_texts=[query_text], n_results=3)
+    top_chunks = [doc for doc in results['documents'][0]]
+    prompt = f"Answer this based on the documents: {query_text}\n\nContext:\n" + "\n".join(top_chunks)
+    response = co.generate(prompt=prompt, model="command-r", max_tokens=300)
+    return {"answer": response.generations[0].text.strip()}
