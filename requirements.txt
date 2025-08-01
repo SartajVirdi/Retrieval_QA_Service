@@ -1,7 +1,5 @@
 fastapi
 uvicorn
-cohere
-chromadb
 PyMuPDF
-pillow
-python-dotenv
+chromadb
+cohere
