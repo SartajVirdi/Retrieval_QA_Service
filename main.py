@@ -59,3 +59,9 @@ def query_docs(request: QueryRequest):
     prompt = f"Answer this based on the documents: {query_text}\n\nContext:\n" + "\n".join(top_chunks)
     response = co.generate(prompt=prompt, model="command-r", max_tokens=300)
     return {"answer": response.generations[0].text.strip()}
+
+# Render-compatible startup
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
