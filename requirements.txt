@@ -1,5 +1,3 @@
 flask
-numpy
-faiss-cpu
 PyMuPDF
 google-generativeai
