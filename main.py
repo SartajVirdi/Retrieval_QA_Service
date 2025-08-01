@@ -55,10 +55,23 @@ def startup_event():
 def query_docs(request: QueryRequest):
     query_text = request.query
     results = collection.query(query_texts=[query_text], n_results=3)
-    top_chunks = [doc for doc in results['documents'][0]]
+
+    if not results['documents'][0]:
+        return {"answer": "No relevant information found in documents."}
+
+    top_chunks = results['documents'][0]
     prompt = f"Answer this based on the documents: {query_text}\n\nContext:\n" + "\n".join(top_chunks)
-    response = co.generate(prompt=prompt, model="command-r", max_tokens=300)
-    return {"answer": response.generations[0].text.strip()}
+
+    # ✅ Use chat instead of generate
+    response = co.chat(
+        model="command-r",
+        message=prompt,
+        temperature=0.3,
+        max_tokens=300
+    )
+
+    return {"answer": response.text.strip()}
+
 
 # Render-compatible startup
 if __name__ == "__main__":
