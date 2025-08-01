@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from flask import Flask, request, jsonify
 import cohere
 import fitz  # PyMuPDF
@@ -23,7 +25,7 @@ def load_all_pdfs(folder="policies"):
     return combined_text
 
 # ✅ Smarter chunking with larger context and overlap
-def split_text(text, max_tokens=800, overlap=200):
+def split_text(text, max_tokens=500, overlap=100):
     sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []
     chunk = []
@@ -40,23 +42,6 @@ def split_text(text, max_tokens=800, overlap=200):
     if chunk:
         chunks.append(" ".join(chunk))
     return chunks
-
-# ✅ Embed in smaller batches to prevent rate limits
-def embed_chunks_batched(chunks, batch_size=10):
-    all_embeddings = []
-    for i in range(0, len(chunks), batch_size):
-        batch = chunks[i:i + batch_size]
-        try:
-            response = co.embed(
-                texts=batch,
-                model="embed-english-v3.0",
-                input_type="search_document"
-            )
-            all_embeddings.extend(response.embeddings)
-            time.sleep(2)  # Avoid hitting token rate limit
-        except Exception as e:
-            return None, f"Embedding error in batch {i // batch_size + 1}: {e}"
-    return np.array(all_embeddings).astype("float32"), None
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -75,9 +60,21 @@ def webhook():
     chunks = split_text(text)
 
     # ✅ Embed all chunks with Cohere in batches
-    embeddings, err = embed_chunks_batched(chunks)
-    if err:
-        return jsonify({"error": err}), 500
+    try:
+        embeddings = []
+        batch_size = 10
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            embed_response = co.embed(
+                texts=batch,
+                model="embed-english-v3.0",
+                input_type="search_document"
+            )
+            embeddings.extend(embed_response.embeddings)
+            time.sleep(2)  # avoid hitting rate limit
+        embeddings = np.array(embeddings).astype("float32")
+    except Exception as e:
+        return jsonify({"error": f"Embedding error in batch {i // batch_size + 1}: {e}"}), 500
 
     # ✅ FAISS Index
     index = faiss.IndexFlatL2(embeddings.shape[1])
