@@ -3,3 +3,4 @@ uvicorn
 cohere
 chromadb
 PyMuPDF
+pillow
