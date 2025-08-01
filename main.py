@@ -3,6 +3,7 @@ import fitz  # PyMuPDF
 import uuid
 import time
 import cohere
+from fastapi import FastAPI
 from chromadb.utils.embedding_functions import CohereEmbeddingFunction
 import chromadb
 
@@ -27,7 +28,7 @@ def ingest():
 
     if not pdf_files:
         print("No PDF files found in 'policies/' folder.")
-        return
+        return {"status": "No PDF files found."}
 
     batch_size = 5  # Lower batch size to avoid token overload
     delay_seconds = 2  # Time to wait between batches
@@ -59,6 +60,23 @@ def ingest():
             except Exception as e:
                 print(f"Error uploading batch {i//batch_size + 1} of {pdf_file}: {e}")
 
+    return {"status": "Ingestion completed."}
+
+
+# FastAPI app setup
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"message": "PDF Q&A API is running."}
+
+@app.get("/ingest")
+def run_ingestion():
+    return ingest()
+
+
+# Port binding block for Render
 if __name__ == "__main__":
+    import uvicorn
     ingest()
-    print("Ingestion completed.")
+    uvicorn.run("main:app", host="0.0.0.0", port=10000)
