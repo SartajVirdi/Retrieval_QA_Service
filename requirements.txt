@@ -1,3 +1,7 @@
-flask
+fastapi
+uvicorn
+cohere
+chromadb
 PyMuPDF
-google-generativeai
+pillow
+python-dotenv
