@@ -1,5 +1,5 @@
 flask
-cohere
 numpy
 faiss-cpu
 PyMuPDF
+google-generativeai
