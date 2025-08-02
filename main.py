@@ -1,67 +1,108 @@
-from flask import Flask, request, jsonify
-import os
-import fitz  # PyMuPDF
-import cohere
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from dotenv import load_dotenv
+# -- coding: utf-8 --
 
-load_dotenv()
+from flask import Flask, request, jsonify
+import cohere
+import fitz  # PyMuPDF
+import numpy as np
+import os
+import re
+import time
+import base64
+from io import BytesIO
+
+app = Flask(_name_)
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
-app = Flask(__name__)
+# ✅ Convert uploaded PDF (base64) to text
+def extract_text_from_uploaded_pdf(b64_data):
+    try:
+        pdf_bytes = base64.b64decode(b64_data)
+        pdf_file = BytesIO(pdf_bytes)
+        doc = fitz.open(stream=pdf_file, filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text() + "\n"
+        return text
+    except Exception as e:
+        raise RuntimeError(f"PDF processing error: {e}")
 
-# Utility: Load and chunk all PDFs
-def extract_and_chunk_pdfs(folder_path, chunk_size=1000, overlap=200):
+# ✅ Chunk text with overlap for context
+def split_text(text, max_tokens=500, overlap=100):
+    sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []
-    for filename in os.listdir(folder_path):
-        if filename.endswith(".pdf"):
-            doc = fitz.open(os.path.join(folder_path, filename))
-            full_text = ""
-            for page in doc:
-                full_text += page.get_text()
-            # Create overlapping chunks
-            for i in range(0, len(full_text), chunk_size - overlap):
-                chunk = full_text[i:i + chunk_size]
-                if len(chunk.strip()) > 50:
-                    chunks.append(chunk.strip())
+    chunk = []
+    tokens = 0
+    for sentence in sentences:
+        sentence_tokens = len(sentence.split())
+        if tokens + sentence_tokens <= max_tokens:
+            chunk.append(sentence)
+            tokens += sentence_tokens
+        else:
+            chunks.append(" ".join(chunk))
+            chunk = chunk[-(overlap // 5):] + [sentence]
+            tokens = sum(len(s.split()) for s in chunk)
+    if chunk:
+        chunks.append(" ".join(chunk))
     return chunks
 
-# Preload chunks on app start
-all_chunks = extract_and_chunk_pdfs("policies/")
-chunk_embeddings = co.embed(texts=all_chunks, model="embed-multilingual-v3.0").embeddings
-
-@app.route('/webhook', methods=['POST'])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    query = data.get("query")
-    if not query:
-        return jsonify({"error": "No query provided"}), 400
+    if not data or "query" not in data or "pdf_base64" not in data:
+        return jsonify({"error": "Missing required fields: 'query' and 'pdf_base64'"}), 400
+
+    query = data["query"]
+    pdf_b64 = data["pdf_base64"]
 
     try:
-        query_embedding = co.embed(texts=[query], model="embed-multilingual-v3.0").embeddings[0]
-        sims = cosine_similarity([query_embedding], chunk_embeddings)[0]
-        top_indices = np.argsort(sims)[::-1][:3]
-        top_chunks = "\n\n".join([all_chunks[i] for i in top_indices])
-
-        prompt = f"""Answer the following question based only on the policy text below.
-
-Policy Content:
-{top_chunks}
-
-Question: {query}
-Answer:"""
-
-        response = co.generate(
-            model="command-r-plus",
-            prompt=prompt,
-            temperature=0.3,
-            max_tokens=300
-        )
-        return jsonify({"response": response.generations[0].text.strip()})
-
+        text = extract_text_from_uploaded_pdf(pdf_b64)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    chunks = split_text(text)
+
+    # Embed chunks
+    try:
+        embeddings = []
+        batch_size = 10
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            embed_response = co.embed(
+                texts=batch,
+                model="embed-english-v3.0",
+                input_type="search_document"
+            )
+            embeddings.extend(embed_response.embeddings)
+            time.sleep(2)  # avoid rate limit
+        embeddings = np.array(embeddings).astype("float32")
+    except Exception as e:
+        return jsonify({"error": f"Embedding error: {e}"}), 500
+
+    # Embed query and retrieve top-k
+    try:
+        query_embed = co.embed(
+            texts=[query],
+            model="embed-english-v3.0",
+            input_type="search_query"
+        ).embeddings[0]
+
+        similarities = np.dot(embeddings, query_embed)
+        top_indices = similarities.argsort()[-5:][::-1]
+        top_chunks = [chunks[i] for i in top_indices]
+    except Exception as e:
+        return jsonify({"error": f"Search error: {e}"}), 500
+
+    context = "\n".join(top_chunks)
+
+    try:
+        response = co.chat(
+            model='command-r-plus',
+            message=query,
+            documents=[{"text": context}]
+        )
+        return jsonify({"response": response.text.strip()})
+    except Exception as e:
+        return jsonify({"error": f"LLM response error: {e}"}), 500
+
+if _name_ == "_main_":
+    app.run(host="0.0.0.0", port=5000)
