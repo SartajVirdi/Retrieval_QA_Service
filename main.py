@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 # Utility: Load and chunk all PDFs
 def extract_and_chunk_pdfs(folder_path, chunk_size=1000, overlap=200):
@@ -63,5 +63,5 @@ Answer:"""
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     app.run(debug=False, host="0.0.0.0", port=5000)
