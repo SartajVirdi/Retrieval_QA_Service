@@ -1,6 +1,5 @@
---extra-index-url https://pypi.ngc.nvidia.com
-faiss-cpu==1.7.4
-flask
 cohere
 PyMuPDF
 numpy
+flask
+faiss-cpu==1.7.4
