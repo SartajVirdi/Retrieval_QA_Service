@@ -1,3 +1,5 @@
-Flask
+fastapi
+uvicorn
 PyMuPDF
 requests
+python-multipart
