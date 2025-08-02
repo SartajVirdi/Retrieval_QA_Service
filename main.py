@@ -1,64 +1,60 @@
-from flask import Flask, request, jsonify
-import base64
-import fitz  # PyMuPDF
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List
 import requests
+import fitz  # PyMuPDF
+import base64
 import os
 
-app = Flask(__name__)
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # or replace with your key directly
+app = FastAPI()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Set this in Render environment
 
-# ✅ Extract text from base64-encoded PDF
-def extract_text_from_uploaded_pdf(b64_data):
+class HackRxRequest(BaseModel):
+    documents: str  # URL to the PDF file
+    questions: List[str]
+
+class HackRxResponse(BaseModel):
+    answers: List[str]
+
+# -- Util: Download and extract PDF text from URL --
+def extract_text_from_pdf_url(url):
     try:
-        pdf_bytes = base64.b64decode(b64_data)
+        response = requests.get(url)
+        response.raise_for_status()
+        pdf_bytes = response.content
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        text = ""
-        for page in doc:
-            text += page.get_text() + "\n"
-        return text
+        return "\n".join(page.get_text() for page in doc)
     except Exception as e:
-        raise RuntimeError(f"PDF processing error: {e}")
+        raise RuntimeError(f"Failed to process PDF: {e}")
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if not data or "query" not in data or "pdf_base64" not in data:
-        return jsonify({"error": "Missing required fields: 'query' and 'pdf_base64'"}), 400
-
-    query = data["query"]
-    pdf_b64 = data["pdf_base64"]
-
-    try:
-        text = extract_text_from_uploaded_pdf(pdf_b64)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    # Prepare Gemini REST API payload
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+# -- Util: Call Gemini with question + context --
+def ask_gemini(question: str, context: str) -> str:
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     headers = {
         "Content-Type": "application/json",
         "x-goog-api-key": GEMINI_API_KEY,
     }
+    prompt = f"Answer the following question based on the provided policy document context.\n\nContext:\n{context[:20000]}\n\nQuestion: {question}"
     payload = {
         "contents": [
             {
-                "parts": [
-                    {
-                        "text": f"{query}\n\n{text[:20000]}"  # Trim text to avoid overload
-                    }
-                ]
+                "parts": [ {"text": prompt} ]
             }
         ]
     }
-
     try:
-        response = requests.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        result = response.json()
-        reply = result["candidates"][0]["content"]["parts"][0]["text"]
-        return jsonify({"response": reply.strip()})
+        res = requests.post(endpoint, headers=headers, json=payload)
+        res.raise_for_status()
+        return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
-        return jsonify({"error": f"Gemini response error: {e}"}), 500
+        return f"Error from Gemini: {e}"
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+@app.post("/hackrx/run", response_model=HackRxResponse)
+def run_pipeline(data: HackRxRequest):
+    try:
+        full_text = extract_text_from_pdf_url(data.documents)
+    except Exception as e:
+        return {"answers": [f"Failed to read PDF: {e}"] * len(data.questions)}
+    
+    answers = [ask_gemini(q, full_text) for q in data.questions]
+    return {"answers": answers}
