@@ -1,24 +1,26 @@
 # -- coding: utf-8 --
 
 from flask import Flask, request, jsonify
-import anthropic
+import openai
 import fitz  # PyMuPDF
 import numpy as np
 import os
 import re
-import time
 import base64
+import time
 from io import BytesIO
 
 app = Flask(__name__)
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# ✅ Convert uploaded PDF (base64) to text
+# ✅ Set OpenRouter API key and base
+openai.api_key = os.getenv("OPENROUTER_API_KEY")
+openai.api_base = "https://openrouter.ai/api/v1"
+
+# ✅ Decode base64 PDF and extract text
 def extract_text_from_uploaded_pdf(b64_data):
     try:
         pdf_bytes = base64.b64decode(b64_data)
-        pdf_file = BytesIO(pdf_bytes)
-        doc = fitz.open(stream=pdf_file, filetype="pdf")
+        doc = fitz.open(stream=BytesIO(pdf_bytes), filetype="pdf")
         text = ""
         for page in doc:
             text += page.get_text() + "\n"
@@ -26,7 +28,7 @@ def extract_text_from_uploaded_pdf(b64_data):
     except Exception as e:
         raise RuntimeError(f"PDF processing error: {e}")
 
-# ✅ Chunk text with overlap for context
+# ✅ Chunk text with overlap
 def split_text(text, max_tokens=500, overlap=100):
     sentences = re.split(r'(?<=[.!?])\s+', text)
     chunks = []
@@ -61,27 +63,30 @@ def webhook():
 
     chunks = split_text(text)
 
-    # ✅ Build context manually (top-k 5 chunks by length here, or implement similarity if needed)
-    context = "\n\n".join(chunks[:5])  # You can implement similarity using external embedding API if needed
+    # ✅ Basic keyword filtering (optional)
+    top_chunks = []
+    query_keywords = set(re.findall(r'\w+', query.lower()))
+    for chunk in chunks:
+        chunk_words = set(re.findall(r'\w+', chunk.lower()))
+        if query_keywords & chunk_words:
+            top_chunks.append(chunk)
+        if len(top_chunks) >= 5:
+            break
+    if not top_chunks:
+        top_chunks = chunks[:5]
 
-    # ✅ Ask Claude with prompt
+    context = "\n".join(top_chunks)
+
+    # ✅ Ask LLM (Claude/DeepSeek via OpenRouter)
     try:
-        full_prompt = f"""You are a helpful assistant. Use the following insurance policy to answer the question.
-
-Context:
-{context}
-
-Question: {query}
-Answer:"""
-
-        response = client.messages.create(
-            model="claude-3-sonnet-20240229",
-            max_tokens=500,
-            temperature=0.3,
-            messages=[{"role": "user", "content": full_prompt}]
+        completion = openai.ChatCompletion.create(
+            model="deepseek-chat",  # You can replace with claude-3-sonnet, etc.
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that answers questions based on insurance policy documents."},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion:\n{query}"}
+            ]
         )
-
-        return jsonify({"response": response.content[0].text.strip()})
+        return jsonify({"response": completion["choices"][0]["message"]["content"].strip()})
     except Exception as e:
         return jsonify({"error": f"LLM response error: {e}"}), 500
 
