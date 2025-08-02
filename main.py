@@ -1,7 +1,7 @@
 # -- coding: utf-8 --
 
 from flask import Flask, request, jsonify
-import cohere
+import anthropic
 import fitz  # PyMuPDF
 import numpy as np
 import os
@@ -11,7 +11,7 @@ import base64
 from io import BytesIO
 
 app = Flask(__name__)
-co = cohere.Client(os.getenv("COHERE_API_KEY"))
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # ✅ Convert uploaded PDF (base64) to text
 def extract_text_from_uploaded_pdf(b64_data):
@@ -61,46 +61,27 @@ def webhook():
 
     chunks = split_text(text)
 
-    # Embed chunks
+    # ✅ Build context manually (top-k 5 chunks by length here, or implement similarity if needed)
+    context = "\n\n".join(chunks[:5])  # You can implement similarity using external embedding API if needed
+
+    # ✅ Ask Claude with prompt
     try:
-        embeddings = []
-        batch_size = 10
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            embed_response = co.embed(
-                texts=batch,
-                model="embed-english-v3.0",
-                input_type="search_document"
-            )
-            embeddings.extend(embed_response.embeddings)
-            time.sleep(2)  # avoid rate limit
-        embeddings = np.array(embeddings).astype("float32")
-    except Exception as e:
-        return jsonify({"error": f"Embedding error: {e}"}), 500
+        full_prompt = f"""You are a helpful assistant. Use the following insurance policy to answer the question.
 
-    # Embed query and retrieve top-k
-    try:
-        query_embed = co.embed(
-            texts=[query],
-            model="embed-english-v3.0",
-            input_type="search_query"
-        ).embeddings[0]
+Context:
+{context}
 
-        similarities = np.dot(embeddings, query_embed)
-        top_indices = similarities.argsort()[-5:][::-1]
-        top_chunks = [chunks[i] for i in top_indices]
-    except Exception as e:
-        return jsonify({"error": f"Search error: {e}"}), 500
+Question: {query}
+Answer:"""
 
-    context = "\n".join(top_chunks)
-
-    try:
-        response = co.chat(
-            model='command-r-plus',
-            message=query,
-            documents=[{"text": context}]
+        response = client.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=500,
+            temperature=0.3,
+            messages=[{"role": "user", "content": full_prompt}]
         )
-        return jsonify({"response": response.text.strip()})
+
+        return jsonify({"response": response.content[0].text.strip()})
     except Exception as e:
         return jsonify({"error": f"LLM response error: {e}"}), 500
 
