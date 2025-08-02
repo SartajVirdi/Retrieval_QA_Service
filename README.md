@@ -1,21 +1,27 @@
-#  LLM-Powered Insurance Document Query System
+# 📄 PDF Q&A API with Cohere
 
-This project is built for **HackRx 6.0** and allows users to ask natural language questions (like insurance claims) and receive structured decisions extracted from complex documents such as health policies.
+A lightweight Flask API that answers natural language queries based on a PDF (`policy.pdf`). Uses Cohere embeddings + FAISS for retrieval and `command-r-plus` for generation.
 
 ---
 
-##  API Endpoint
+## 🛠️ Tech Stack
 
-**POST** `/api/v1/hackrx/run`
+- 🧠 Cohere (`embed-english-v3.0`, `command-r-plus`)
+- 🗃️ FAISS for vector search
+- 🧾 PyMuPDF to parse PDFs
+- 🌐 Flask API (Render deployment)
 
-###  Request Format
+---
 
-```json
-{
-  "query": "46M, knee surgery, Pune, 3-month policy",
-  "chunks": [
-    "Bajaj Allianz provides coverage for knee surgery after 90 days of policy activation.",
-    "Applicable to males aged 18–60 across major cities including Pune.",
-    "Day-care procedures and hospitalizations are included under the Gold Health Plan."
-  ]
-}
+## 🔧 Setup
+
+1. Upload `policy.pdf` in your repo.
+2. Deploy on **Render** with:
+   - Python ≥ 3.10
+   - `requirements.txt`
+   - Environment variable: `COHERE_API_KEY`
+3. On Colab, run:
+   ```bash
+   !curl -X POST https://<render-url>/webhook \
+     -H "Content-Type: application/json" \
+     -d '{"query":"example query"}'
