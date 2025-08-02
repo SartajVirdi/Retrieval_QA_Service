@@ -4,3 +4,4 @@ PyMuPDF
 scikit-learn
 numpy
 gunicorn
+python-dotenv
