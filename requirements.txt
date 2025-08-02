@@ -1,7 +1,4 @@
 Flask
-cohere
 PyMuPDF
-scikit-learn
 numpy
-gunicorn
-python-dotenv
+anthropic
