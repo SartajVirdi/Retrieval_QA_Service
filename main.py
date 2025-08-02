@@ -1,105 +1,41 @@
 from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
 import cohere
 import fitz  # PyMuPDF
-import faiss
 import numpy as np
 import os
 import re
-import pickle
+import glob
+import time
+from sklearn.neighbors import NearestNeighbors
 
-app = Flask(__name__)
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# ✅ Load Cohere API key
+app = Flask(_name_)
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
-# ===========================
-# PDF LOADING & CHUNKING
-# ===========================
+def load_all_pdfs(folder="policies"):
+    combined_text = ""
+    for filepath in glob.glob(os.path.join(folder, "*.pdf")):
+        doc = fitz.open(filepath)
+        for page in doc:
+            combined_text += page.get_text() + "\n"
+    return combined_text
 
-def load_pdf(path):
-    doc = fitz.open(path)
-    return "\n".join(page.get_text() for page in doc)
-
-def split_text(text, max_tokens=300):
+def split_text(text, max_tokens=500, overlap=100):
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks, chunk = [], ""
+    chunks = []
+    chunk = []
+    tokens = 0
     for sentence in sentences:
-        if len(chunk) + len(sentence) <= max_tokens:
-            chunk += " " + sentence
+        sentence_tokens = len(sentence.split())
+        if tokens + sentence_tokens <= max_tokens:
+            chunk.append(sentence)
+            tokens += sentence_tokens
         else:
-            chunks.append(chunk.strip())
-            chunk = sentence
+            chunks.append(" ".join(chunk))
+            chunk = chunk[-(overlap // 5):] + [sentence]
+            tokens = sum(len(s.split()) for s in chunk)
     if chunk:
-        chunks.append(chunk.strip())
+        chunks.append(" ".join(chunk))
     return chunks
-
-def embed_chunks(chunks):
-    response = co.embed(
-        texts=chunks,
-        model="embed-english-v3.0",
-        input_type="search_document"
-    )
-    return np.array(response.embeddings).astype("float32")
-
-def preprocess_policy_pdf(pdf_path="policy.pdf"):
-    print("[INFO] Processing PDF:", pdf_path)
-    text = load_pdf(pdf_path)
-    chunks = split_text(text)
-    embeddings = embed_chunks(chunks)
-
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
-
-    # Save data
-    with open("chunks.pkl", "wb") as f:
-        pickle.dump(chunks, f)
-    np.save("embeddings.npy", embeddings)
-    faiss.write_index(index, "faiss.index")
-    print("[INFO] Processing complete.")
-
-# ===========================
-# PDF UPLOAD ENDPOINT
-# ===========================
-
-@app.route("/upload", methods=["POST"])
-def upload_pdf():
-    if 'pdf' not in request.files:
-        return jsonify({"error": "No PDF uploaded"}), 400
-
-    pdf_file = request.files['pdf']
-    filename = secure_filename(pdf_file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    pdf_file.save(filepath)
-
-    try:
-        preprocess_policy_pdf(filepath)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    return jsonify({"message": f"{filename} uploaded and processed successfully."})
-
-# ===========================
-# QUERY ENDPOINT
-# ===========================
-
-def load_index():
-    with open("chunks.pkl", "rb") as f:
-        chunks = pickle.load(f)
-    embeddings = np.load("embeddings.npy")
-    index = faiss.read_index("faiss.index")
-    return chunks, embeddings, index
-
-def search(query, k=3):
-    query_embed = co.embed(
-        texts=[query],
-        model="embed-english-v3.0",
-        input_type="search_query"
-    ).embeddings[0]
-    D, I = index.search(np.array([query_embed], dtype="float32"), k)
-    return [chunks[i] for i in I[0]]
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -108,10 +44,42 @@ def webhook():
         return jsonify({"error": "Query field missing"}), 400
 
     query = data["query"]
-    try:
-        retrieved = search(query)
-        context = "\n".join(retrieved)
 
+    try:
+        text = load_all_pdfs()
+    except Exception as e:
+        return jsonify({"error": f"Failed to load PDFs: {e}"}), 500
+
+    chunks = split_text(text)
+
+    try:
+        embeddings = []
+        batch_size = 10
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            embed_response = co.embed(
+                texts=batch,
+                model="embed-english-v3.0",
+                input_type="search_document"
+            )
+            embeddings.extend(embed_response.embeddings)
+            time.sleep(2)  # avoid rate limit
+        embeddings = np.array(embeddings).astype("float32")
+    except Exception as e:
+        return jsonify({"error": f"Embedding error: {e}"}), 500
+
+    try:
+        nn = NearestNeighbors(n_neighbors=5, metric="euclidean")
+        nn.fit(embeddings)
+        query_embed = co.embed(texts=[query], model="embed-english-v3.0", input_type="search_query").embeddings[0]
+        distances, indices = nn.kneighbors([query_embed])
+        retrieved = [chunks[i] for i in indices[0]]
+    except Exception as e:
+        return jsonify({"error": f"Search error: {e}"}), 500
+
+    context = "\n".join(retrieved)
+
+    try:
         response = co.chat(
             model='command-r-plus',
             message=query,
@@ -119,16 +87,7 @@ def webhook():
         )
         return jsonify({"response": response.text.strip()})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"LLM response error: {e}"}), 500
 
-# ===========================
-# INIT ON START
-# ===========================
-
-if os.path.exists("faiss.index"):
-    chunks, embeddings, index = load_index()
-else:
-    chunks, embeddings, index = [], None, None
-
-if __name__ == "__main__":
+if _name_ == "_main_":
     app.run(host="0.0.0.0", port=5000)
