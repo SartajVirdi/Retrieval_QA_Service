@@ -8,7 +8,7 @@ import glob
 import time
 from sklearn.neighbors import NearestNeighbors
 
-app = Flask(_name_)
+app = Flask(__name__)
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
 def load_all_pdfs(folder="policies"):
@@ -89,5 +89,5 @@ def webhook():
     except Exception as e:
         return jsonify({"error": f"LLM response error: {e}"}), 500
 
-if _name_ == "_main_":
+if _name_ == "__main__":
     app.run(host="0.0.0.0", port=5000)
