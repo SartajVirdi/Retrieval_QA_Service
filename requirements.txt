@@ -1,4 +1,3 @@
 Flask
 PyMuPDF
-numpy
-openai
+google-generativeai
