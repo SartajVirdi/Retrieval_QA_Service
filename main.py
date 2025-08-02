@@ -7,19 +7,25 @@ import numpy as np
 import os
 import re
 import time
+import io
+import base64
 
 app = Flask(__name__)
 
 # Load API key from environment variable
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
 
-# ✅ Read uploaded single PDF (e.g., policy_main.pdf)
-def load_pdf(filepath="policy_main.pdf"):
-    doc = fitz.open(filepath)
-    text = ""
-    for page in doc:
-        text += page.get_text() + "\n"
-    return text
+# ✅ Load PDF from base64 string
+def load_pdf_from_base64(pdf_base64):
+    try:
+        pdf_bytes = base64.b64decode(pdf_base64)
+        doc = fitz.open(stream=io.BytesIO(pdf_bytes), filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text() + "\n"
+        return text
+    except Exception as e:
+        raise RuntimeError(f"Failed to load PDF: {e}")
 
 # ✅ Smart chunking with overlap
 def split_text(text, max_tokens=500, overlap=100):
@@ -43,20 +49,21 @@ def split_text(text, max_tokens=500, overlap=100):
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    if not data or "query" not in data:
-        return jsonify({"error": "Query field missing"}), 400
+    if not data or "query" not in data or "pdf_base64" not in data:
+        return jsonify({"error": "Missing 'query' or 'pdf_base64' in request"}), 400
 
     query = data["query"]
+    pdf_base64 = data["pdf_base64"]
 
-    # ✅ Load and chunk single PDF
+    # ✅ Load text from PDF content
     try:
-        text = load_pdf()
+        text = load_pdf_from_base64(pdf_base64)
     except Exception as e:
-        return jsonify({"error": f"Failed to load PDF: {e}"}), 500
+        return jsonify({"error": str(e)}), 500
 
     chunks = split_text(text)
 
-    # ✅ Embed all chunks in batches with token throttling
+    # ✅ Embed all chunks in batches
     try:
         embeddings = []
         batch_size = 10
