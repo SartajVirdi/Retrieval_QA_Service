@@ -1,5 +1,6 @@
+Flask
 cohere
 PyMuPDF
+scikit-learn
 numpy
-flask
-faiss-cpu==1.7.4
+gunicorn
