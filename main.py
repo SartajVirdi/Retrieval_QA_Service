@@ -77,10 +77,10 @@ def webhook():
 
     context = "\n".join(top_chunks)
 
-    # ✅ Ask LLM (Claude/DeepSeek via OpenRouter)
+    # ✅ Ask LLM (DeepSeek via OpenRouter)
     try:
         completion = openai.ChatCompletion.create(
-            model="deepseek-chat",  # You can replace with claude-3-sonnet, etc.
+            model="deepseek/deepseek-chat-v3-0324",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that answers questions based on insurance policy documents."},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion:\n{query}"}
