@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from typing import List
 import requests
 import fitz  # PyMuPDF
-import base64
 import os
 
 app = FastAPI()
