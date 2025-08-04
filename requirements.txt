@@ -1,5 +1,9 @@
-fastapi
-uvicorn
-requests
-PyMuPDF
-sentence-transformers
+fastapi==0.110.1
+uvicorn==0.29.0
+requests==2.31.0
+pydantic==2.7.1
+PyMuPDF==1.23.19
+sentence-transformers==2.7.0
+torch==2.3.0
+numpy==1.26.4
+scipy==1.13.1
