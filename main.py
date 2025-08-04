@@ -48,7 +48,7 @@ def truncate_context(text: str, max_chars=20000):
 
 # -- Step 5: Call Gemini API --
 def ask_gemini(question: str, context: str) -> str:
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     headers = {
         "Content-Type": "application/json",
         "x-goog-api-key": GEMINI_API_KEY,
