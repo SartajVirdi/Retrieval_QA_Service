@@ -1,17 +1,15 @@
 import logging
 import os
 import traceback
-
+import requests
+import fitz  # PyMuPDF
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import requests
-import fitz  # PyMuPDF
 from sentence_transformers import SentenceTransformer, util
 import faiss
 import numpy as np
 
-# Enable logging
 logging.basicConfig(level=logging.INFO)
 logging.info("🚀 App is starting...")
 
@@ -23,57 +21,55 @@ if not OPENROUTER_API_KEY:
 else:
     logging.info("✅ Claude API key loaded.")
 
-# FastAPI app
 app = FastAPI()
 
-# Global error handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
     return JSONResponse(status_code=500, content={"error": str(exc)})
 
-# Health check route
 @app.get("/")
 async def root():
     return {"status": "🟢 API is running!"}
 
-
-# PDF Q&A input model
 class QARequest(BaseModel):
-    documents: str  # PDF URL
+    documents: str
     questions: list[str]
 
-
-# Utility: Download and extract PDF
 def extract_text_from_pdf_url(pdf_url: str) -> str:
-    logging.info(f"📄 Downloading PDF: {pdf_url}")
-    response = requests.get(pdf_url)
-    response.raise_for_status()
-    with open("temp.pdf", "wb") as f:
-        f.write(response.content)
-    doc = fitz.open("temp.pdf")
-    text = "\n".join([page.get_text() for page in doc])
-    logging.info("✅ PDF text extracted.")
-    return text
+    try:
+        logging.info(f"📄 Downloading PDF: {pdf_url}")
+        response = requests.get(pdf_url)
+        response.raise_for_status()
+        with open("temp.pdf", "wb") as f:
+            f.write(response.content)
+        doc = fitz.open("temp.pdf")
+        text = "\n".join([page.get_text() for page in doc])
+        logging.info("✅ PDF text extracted.")
+        return text
+    except Exception as e:
+        logging.error("❌ PDF extraction failed.")
+        raise e
 
-
-# Utility: Chunk text into embeddings
 def embed_and_index(text: str):
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    logging.info("📦 Loaded sentence-transformers model.")
+    try:
+        logging.info("📦 Loading sentence-transformer model...")
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        logging.info("✅ Model loaded.")
 
-    paragraphs = [chunk.strip() for chunk in text.split("\n\n") if chunk.strip()]
-    logging.info(f"🧩 Total chunks: {len(paragraphs)}")
+        paragraphs = [chunk.strip() for chunk in text.split("\n\n") if chunk.strip()]
+        logging.info(f"🧩 Total chunks: {len(paragraphs)}")
 
-    embeddings = model.encode(paragraphs)
-    dim = embeddings.shape[1]
+        embeddings = model.encode(paragraphs)
+        dim = embeddings.shape[1]
 
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings))
-    return index, embeddings, paragraphs, model
+        index = faiss.IndexFlatL2(dim)
+        index.add(np.array(embeddings))
+        return index, embeddings, paragraphs, model
+    except Exception as e:
+        logging.error("❌ Embedding or indexing failed.")
+        raise e
 
-
-# Route: /hackrx/run
 @app.post("/hackrx/run")
 async def hackrx_query(payload: QARequest):
     try:
@@ -85,10 +81,8 @@ async def hackrx_query(payload: QARequest):
             q_embedding = model.encode([q])
             D, I = index.search(np.array(q_embedding), k=1)
             matched_chunk = chunks[I[0][0]]
-
             logging.info(f"🔍 Top match for question '{q}': {matched_chunk[:100]}...")
 
-            # Ask Claude
             prompt = f"""You are an expert policy assistant. Based on the below document chunk, answer this question:\n\nChunk: \"{matched_chunk}\"\n\nQuestion: \"{q}\"\nAnswer:"""
             headers = {
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
