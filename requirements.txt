@@ -4,4 +4,3 @@ requests
 PyMuPDF
 sentence-transformers
 faiss-cpu
-python-multipart
