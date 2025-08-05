@@ -1,5 +1,7 @@
 fastapi
-uvicorn
-pydantic
 requests
-PyMuPDF
+faiss-cpu
+retrying
+numpy
+pydantic
+fitz  # PyMuPDF
