@@ -1,57 +1,95 @@
+# main.py
+import fitz  # PyMuPDF
+import requests
+import shutil
+import tempfile
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
-import requests
-import fitz  # PyMuPDF
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 import os
 
 app = FastAPI()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Set this as env var or manually assign for local
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-class HackRxRequest(BaseModel):
-    documents: str
-    questions: List[str]
+# --- Claude API ---
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+LLM_MODEL = "anthropic/claude-3-sonnet"
 
-class HackRxResponse(BaseModel):
-    answers: List[str]
+def ask_llm(question, context):
+    prompt = f"""
+You are an insurance policy assistant. Based on the context below, answer the question precisely.
 
-# --- PDF Text Extraction ---
-def extract_text_from_pdf_url(url: str) -> str:
-    response = requests.get(url)
-    response.raise_for_status()
-    doc = fitz.open(stream=response.content, filetype="pdf")
-    return "\n".join(page.get_text() for page in doc)
+Context:
+{context}
 
-# --- Ask Gemini API ---
-def ask_gemini(question: str, context: str) -> str:
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+Question:
+{question}
+
+Answer:
+"""
     headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
     }
-    prompt = f"Answer the following question based on the document:\n\nContext:\n{context[:20000]}\n\nQuestion: {question}"
+
     payload = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ]
+        "model": LLM_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 300,
     }
 
-    try:
-        res = requests.post(endpoint, headers=headers, json=payload)
-        res.raise_for_status()
-        return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as e:
-        return f"Gemini error: {e}"
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
+    return response.json()["choices"][0]["message"]["content"].strip()
 
-# --- API Endpoint ---
-@app.post("/hackrx/run", response_model=HackRxResponse)
-def run_pipeline(data: HackRxRequest):
-    try:
-        context = extract_text_from_pdf_url(data.documents)
-    except Exception as e:
-        return {"answers": [f"PDF error: {e}"] * len(data.questions)}
+# --- PDF Extraction ---
+def extract_text_from_pdf(path):
+    text = ""
+    doc = fitz.open(path)
+    for page in doc:
+        text += page.get_text()
+    return text
 
-    answers = [ask_gemini(q, context) for q in data.questions]
-    return {"answers": answers}
+# --- Embedding & FAISS ---
+def chunk_text(text, max_words=100):
+    words = text.split()
+    return [' '.join(words[i:i+max_words]) for i in range(0, len(words), max_words)]
+
+def build_faiss(chunks):
+    embeddings = model.encode(chunks)
+    index = faiss.IndexFlatL2(len(embeddings[0]))
+    index.add(np.array(embeddings))
+    return index, chunks
+
+def search_chunks(index, query, chunks, k=5):
+    q_embed = model.encode([query])
+    _, indices = index.search(np.array(q_embed), k)
+    return [chunks[i] for i in indices[0]]
+
+# --- FastAPI ---
+class RequestBody(BaseModel):
+    documents: str
+    questions: list
+
+@app.post("/hackrx/run")
+async def run(payload: RequestBody):
+    # Download PDF
+    pdf_url = payload.documents
+    response = requests.get(pdf_url, stream=True)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        shutil.copyfileobj(response.raw, tmp_file)
+        path = tmp_file.name
+
+    text = extract_text_from_pdf(path)
+    chunks = chunk_text(text)
+    index, chunk_data = build_faiss(chunks)
+
+    answers = []
+    for question in payload.questions:
+        top_chunks = search_chunks(index, question, chunk_data)
+        context = "\n".join(top_chunks)
+        answer = ask_llm(question, context)
+        answers.append(answer)
+
+    return { "answers": answers }
