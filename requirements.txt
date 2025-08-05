@@ -1,4 +1,8 @@
 fastapi
 uvicorn
 requests
-PyMuPDF
+pydantic
+PyMuPDF==1.23.19
+sentence-transformers
+faiss-cpu
+python-multipart
