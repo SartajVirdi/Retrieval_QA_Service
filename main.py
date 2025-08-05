@@ -1,93 +1,117 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
+import os
 import requests
 import fitz  # PyMuPDF
-import os
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+import tiktoken
+import json
 
 app = FastAPI()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Set this in environment (Render/ngrok)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Load embedding model
-embedder = SentenceTransformer("all-MiniLM-L6-v2")
+# Embedding model and tokenizer
+model = SentenceTransformer("all-MiniLM-L6-v2")
+tokenizer = tiktoken.get_encoding("cl100k_base")
 
+# ===================== Pydantic Models =====================
 class HackRxRequest(BaseModel):
-    documents: str  # URL to the PDF
+    documents: str
     questions: List[str]
 
-class HackRxResponse(BaseModel):
-    answers: List[str]
+class HackRxAnswer(BaseModel):
+    question: str
+    answer: str
 
-# --- Extract plain text from PDF URL ---
+class HackRxResponse(BaseModel):
+    answers: List[HackRxAnswer]
+
+# ===================== Utilities =====================
 def extract_text_from_pdf_url(url: str) -> str:
     response = requests.get(url)
     response.raise_for_status()
-    doc = fitz.open(stream=response.content, filetype="pdf")
-    return "\n".join(page.get_text() for page in doc)
+    pdf = fitz.open(stream=response.content, filetype="pdf")
+    return "\n".join([page.get_text() for page in pdf])
 
-# --- Split text into chunks ---
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:
-    words = text.split()
-    chunks = []
-    i = 0
-    while i < len(words):
-        chunk = words[i:i+chunk_size]
-        chunks.append(" ".join(chunk))
-        i += chunk_size - overlap
+def chunk_text_tokenwise(text: str, max_tokens: int = 300) -> List[str]:
+    tokens = tokenizer.encode(text)
+    chunks = [tokenizer.decode(tokens[i:i + max_tokens]) for i in range(0, len(tokens), max_tokens)]
     return chunks
 
-# --- Embed chunks using SentenceTransformer ---
-def embed_chunks(chunks: List[str]) -> np.ndarray:
-    return np.array(embedder.encode(chunks, convert_to_numpy=True, show_progress_bar=False))
+def build_faiss_index(chunks: List[str]):
+    embeddings = model.encode(chunks)
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(np.array(embeddings))
+    return index, embeddings
 
-# --- FAISS index to retrieve top-k chunks ---
-def get_top_k_chunks(query: str, chunks: List[str], chunk_embeddings: np.ndarray, k: int = 5) -> List[str]:
-    query_embedding = embedder.encode(query, convert_to_numpy=True)
-    index = faiss.IndexFlatL2(chunk_embeddings.shape[1])
-    index.add(chunk_embeddings)
-    D, I = index.search(np.array([query_embedding]), k)
-    return [chunks[i] for i in I[0]]
+def get_top_k_chunks(query: str, chunks: List[str], index, k: int = 5) -> str:
+    query_embedding = model.encode([query])
+    D, I = index.search(np.array(query_embedding), k)
+    return "\n\n".join([chunks[i] for i in I[0]])
 
-# --- Ask Gemini API ---
-def ask_gemini(question: str, context: str) -> str:
+def ask_gemini_flash(question: str, context: str) -> dict:
     endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
+        "x-goog-api-key": GEMINI_API_KEY
     }
-    prompt = f"Answer the following question based on the document context:\n\nContext:\n{context}\n\nQuestion: {question}"
+
+    prompt = f"""You are an insurance policy assistant. 
+Answer the user's question using only the provided context.
+Provide the result in this JSON format:
+{{
+  "question": "...",
+  "answer": "..."
+}}
+
+Context:
+{context}
+
+Question:
+{question}
+"""
+
     payload = {
         "contents": [
             {
-                "parts": [ {"text": prompt} ]
+                "parts": [{"text": prompt}]
             }
         ]
     }
+
     try:
         res = requests.post(endpoint, headers=headers, json=payload)
         res.raise_for_status()
-        return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        result = json.loads(text)
+        return {
+            "question": question,
+            "answer": result.get("answer", text)
+        }
     except Exception as e:
-        return f"Gemini error: {e}"
+        return {
+            "question": question,
+            "answer": f"Gemini error: {e}"
+        }
 
-# --- API Route ---
+# ===================== Endpoint =====================
 @app.post("/hackrx/run", response_model=HackRxResponse)
 def run_pipeline(data: HackRxRequest):
     try:
         text = extract_text_from_pdf_url(data.documents)
-        chunks = chunk_text(text)
-        embeddings = embed_chunks(chunks)
+        chunks = chunk_text_tokenwise(text, max_tokens=300)
+        index, _ = build_faiss_index(chunks)
     except Exception as e:
-        return {"answers": [f"PDF/Embedding error: {e}"] * len(data.questions)}
+        return {
+            "answers": [{"question": q, "answer": f"PDF error: {e}"} for q in data.questions]
+        }
 
-    answers = []
+    results = []
     for question in data.questions:
-        top_chunks = get_top_k_chunks(question, chunks, embeddings)
-        context = "\n".join(top_chunks)
-        answer = ask_gemini(question, context)
-        answers.append(answer)
+        context = get_top_k_chunks(question, chunks, index)
+        results.append(ask_gemini_flash(question, context))
 
-    return {"answers": answers}
+    return {"answers": results}
