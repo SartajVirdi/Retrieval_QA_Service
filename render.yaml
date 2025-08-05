@@ -8,4 +8,4 @@ services:
     plan: free
     envVars:
       - key: OPENROUTER_API_KEY
-        value: your_openrouter_api_key_here
+        value: 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
