@@ -1,6 +1,7 @@
 fastapi
 uvicorn
+pydantic
 requests
 PyMuPDF
-openai
-python-dotenv
+faiss-cpu
+tiktoken
