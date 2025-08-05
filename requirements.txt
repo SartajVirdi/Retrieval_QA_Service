@@ -1,7 +1,8 @@
 fastapi
+uvicorn
 requests
-faiss-cpu
-retrying
-numpy
-pydantic
-fitz  # PyMuPDF
+PyMuPDF==1.23.22
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+tiktoken==0.5.1
+python-multipart
