@@ -4,23 +4,14 @@ from typing import List
 import requests
 import fitz  # PyMuPDF
 import os
-from openai import OpenAI
-import faiss
-import numpy as np
 import tiktoken
+import numpy as np
+import faiss
 
 app = FastAPI()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Add this to your environment
 
-# Environment variable (or paste your key for local testing)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL_NAME = "google/gemini-2.5-flash-lite"
-
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
-
-# Tokenizer setup for token-based chunking
+# Tokenizer setup
 tokenizer = tiktoken.get_encoding("cl100k_base")
 
 def num_tokens(text):
@@ -33,68 +24,20 @@ def chunk_text(text, max_tokens=500):
     current_tokens = 0
 
     for word in words:
-        token_len = num_tokens(word + " ")
-        if current_tokens + token_len <= max_tokens:
+        word_token_len = num_tokens(word + " ")
+        if current_tokens + word_token_len <= max_tokens:
             current_chunk.append(word)
-            current_tokens += token_len
+            current_tokens += word_token_len
         else:
             chunks.append(" ".join(current_chunk))
             current_chunk = [word]
-            current_tokens = token_len
+            current_tokens = word_token_len
 
     if current_chunk:
         chunks.append(" ".join(current_chunk))
     return chunks
 
-def embed_texts(texts: List[str]) -> np.ndarray:
-    responses = []
-    for text in texts:
-        res = client.embeddings.create(
-            model="openai/text-embedding-ada-002",
-            input=text,
-        )
-        responses.append(res.data[0].embedding)
-    return np.array(responses).astype("float32")
-
-def build_faiss_index(chunks: List[str]):
-    embeddings = embed_texts(chunks)
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
-    return index, embeddings
-
-def get_top_k_chunks(question, chunks, index, embeddings, k=3):
-    q_embedding = embed_texts([question])
-    _, I = index.search(np.array(q_embedding).astype("float32"), k)
-    return [chunks[i] for i in I[0]]
-
-def call_gemini(question: str, context: str) -> str:
-    try:
-        completion = client.chat.completions.create(
-            extra_headers={
-                "HTTP-Referer": "https://your-site.com",  # Optional
-                "X-Title": "GeminiDocBot",  # Optional
-            },
-            model=MODEL_NAME,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Answer the following question based only on the given context. Provide a clear, complete answer.
-
-Context:
-\"\"\"
-{context}
-\"\"\"
-
-Question: {question}
-Answer:"""
-                }
-            ]
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Gemini error: {e}"
-
-# Request/Response Models
+# Request/Response schema
 class HackRxRequest(BaseModel):
     documents: str
     questions: List[str]
@@ -102,27 +45,66 @@ class HackRxRequest(BaseModel):
 class HackRxResponse(BaseModel):
     answers: List[str]
 
-# PDF extractor
+# Extract PDF text from URL
 def extract_text_from_pdf_url(url: str) -> str:
     response = requests.get(url)
     response.raise_for_status()
     doc = fitz.open(stream=response.content, filetype="pdf")
     return "\n".join([page.get_text() for page in doc])
 
+# Embed using Gemini embedding model
+def embed_texts(texts: List[str]) -> np.ndarray:
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY
+    }
+    vectors = []
+    for text in texts:
+        body = {
+            "content": {
+                "parts": [{"text": text}]
+            }
+        }
+        res = requests.post(endpoint, headers=headers, json=body)
+        res.raise_for_status()
+        vectors.append(res.json()['embedding']['value'])
+    return np.array(vectors).astype("float32")
+
+# Gemini answer generator
+def ask_gemini(context: str, question: str) -> str:
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+    }
+    prompt = f"""Answer the following question based only on the given context.\n\nContext:\n\"\"\"\n{context}\n\"\"\"\n\nQuestion: {question}\nAnswer:"""
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    try:
+        res = requests.post(endpoint, headers=headers, json=payload)
+        res.raise_for_status()
+        return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        return f"Gemini error: {e}"
+
 @app.post("/hackrx/run", response_model=HackRxResponse)
 def run_pipeline(data: HackRxRequest):
     try:
-        raw_text = extract_text_from_pdf_url(data.documents)
-        chunks = chunk_text(raw_text, max_tokens=500)
-        index, _ = build_faiss_index(chunks)
+        full_text = extract_text_from_pdf_url(data.documents)
+        chunks = chunk_text(full_text, max_tokens=500)
+        embeddings = embed_texts(chunks)
+        index = faiss.IndexFlatL2(embeddings.shape[1])
+        index.add(embeddings)
     except Exception as e:
-        return {"answers": [f"PDF processing error: {e}"] * len(data.questions)}
+        return {"answers": [f"Error processing document: {e}"] * len(data.questions)}
 
     answers = []
     for question in data.questions:
-        top_chunks = get_top_k_chunks(question, chunks, index, _, k=3)
-        combined_context = "\n\n".join(top_chunks)
-        answer = call_gemini(question, combined_context)
-        answers.append(answer)
-
+        q_embedding = embed_texts([question])
+        _, I = index.search(q_embedding, k=3)
+        top_chunks = [chunks[i] for i in I[0]]
+        context = "\n\n".join(top_chunks)
+        answers.append(ask_gemini(context, question))
     return {"answers": answers}
