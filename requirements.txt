@@ -1,8 +1,6 @@
 fastapi
 uvicorn
 requests
-PyMuPDF==1.23.22
-sentence-transformers==2.2.2
-faiss-cpu==1.7.4
-tiktoken==0.5.1
-python-multipart
+PyMuPDF
+openai
+python-dotenv
