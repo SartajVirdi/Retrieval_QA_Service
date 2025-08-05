@@ -1,7 +1,5 @@
 fastapi
 uvicorn
-pydantic
 requests
 PyMuPDF
-faiss-cpu
-tiktoken
+python-multipart
