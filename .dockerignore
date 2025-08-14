@@ -1,13 +1,37 @@
-.git
-.gitignore
+# Python cache
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
+*.so
+
+# Virtual env
 .env
-*.log
+.venv
+env/
+venv/
+
+# Git and docs
+.git
+.gitignore
+README.md
+LICENSE
+
+# OS files
 .DS_Store
-.vscode
-.idea
+Thumbs.db
+
+# Logs and coverage
+*.log
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Build artifacts
+build/
+dist/
 *.egg-info/
-.cache/
+
+# Local dev
+.env.local
+.env.*.local
