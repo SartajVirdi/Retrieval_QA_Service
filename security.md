@@ -105,7 +105,7 @@ You must not:
 - Attempt persistent DoS, account takeover, or social engineering.
 - Use other people’s API keys or induce the service to store secrets.
 
-If in doubt, contact **security@yourdomain.example** before proceeding.
+If in doubt, contact **dragontech172@gmail.com** before proceeding.
 
 ---
 
