@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: hackrx-retrieval-qa
+    env: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false   # set via Render dashboard or CLI
+      - key: OPENROUTER_MODEL
+        value: anthropic/claude-3.5-sonnet
+      - key: WORKERS
+        value: "2"
+      - key: TIMEOUT
+        value: "120"
+      - key: ENABLE_CORS
+        value: "true"
