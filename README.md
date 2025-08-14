@@ -5,14 +5,14 @@
 
 [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=SartajVirdi/Retrieval_QA_Service)
 
-> ⚠️ After deployment, make sure to add your `OPENROUTER_API_KEY` in the environment variables section of the Koyeb dashboard.
+>⚠️ After deployment, make sure to add your OPENAI_API_KEY (or OPENROUTER_API_KEY, depending on provider) in the environment variables section of the Koyeb dashboard.
 
 A FastAPI-based retrieval-augmented question answering API.  
 It:
 - Downloads and extracts text from a PDF URL
 - Chunks text and builds embeddings with [Sentence Transformers](https://www.sbert.net/)
 - Indexes with [FAISS](https://faiss.ai/) for similarity search
-- Sends top-k context to an LLM via [OpenRouter](https://openrouter.ai/)
+- Sends top-k context to an LLM via OpenAI API key ([https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)) or [OpenRouter key](https://openrouter.ai/keys)
 
 ---
 
@@ -129,7 +129,8 @@ This repo includes a Dockerfile and .dockerignore. No code changes needed.
 gunicorn main:app -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT} --timeout ${TIMEOUT:-120}
 ```
 ## Environment variables:
-- OPENROUTER_API_KEY = your OpenRouter key (required)
+- OPENAI_API_KEY = your OpenAI key (required if using OpenAI)
+- OPENROUTER_API_KEY = your OpenRouter key (required if using OpenRouter)
 - Optional: OPENROUTER_MODEL=anthropic/claude-3.5-sonnet, WORKERS=2, TIMEOUT=120,
 - ENABLE_CORS=true, MAX_PDF_MB=20, MAX_PDF_PAGES=200,
 - CHUNK_CHAR_TARGET=1200, CHUNK_CHAR_OVERLAP=180.
@@ -160,18 +161,24 @@ curl -X POST "https://<your-app>.koyeb.app/hackrx/run" \
 - Logs: Use the Logs tab to view Gunicorn/Uvicorn output.
 - CORS: Keep ENABLE_CORS=true for browser clients; restrict origins in code for production.
 ## Environment Variables
-| Variable             | Required | Default                       | Description                          |
-| -------------------- | -------- | ----------------------------- | ------------------------------------ |
-| `OPENROUTER_API_KEY` | Yes      | —                             | OpenRouter API key                   |
-| `OPENROUTER_MODEL`   | No       | `anthropic/claude-3.5-sonnet` | LLM model ID                         |
-| `TOP_K`              | No       | `3`                           | Top chunks to provide as context     |
-| `MAX_PDF_MB`         | No       | `20`                          | Max PDF size (MB)                    |
-| `MAX_PDF_PAGES`      | No       | `200`                         | Max pages to extract                 |
-| `CHUNK_CHAR_TARGET`  | No       | `1200`                        | Target characters per chunk          |
-| `CHUNK_CHAR_OVERLAP` | No       | `180`                         | Characters overlapped between chunks |
-| `ENABLE_CORS`        | No       | `true`                        | Enable CORS for browsers             |
-| `WORKERS`            | No       | `2`                           | Gunicorn workers                     |
-| `TIMEOUT`            | No       | `120`                         | Gunicorn worker timeout (seconds)    |
+
+| Variable             | Required | Default                       | Description                                                           |
+|----------------------|----------|-------------------------------|-----------------------------------------------------------------------|
+| `OPENAI_API_KEY`     | Yes*     | —                             | OpenAI API key (used if calling OpenAI directly)                      |
+| `OPENROUTER_API_KEY` | Yes*     | —                             | OpenRouter API key (used if calling via OpenRouter)                   |
+| `OPENROUTER_MODEL`   | No       | `anthropic/claude-3.5-sonnet` | LLM model ID for OpenRouter                                           |
+| `TOP_K`              | No       | `3`                           | Top chunks to provide as context                                      |
+| `MAX_PDF_MB`         | No       | `20`                          | Max PDF size (MB)                                                     |
+| `MAX_PDF_PAGES`      | No       | `200`                         | Max pages to extract                                                  |
+| `CHUNK_CHAR_TARGET`  | No       | `1200`                        | Target characters per chunk                                           |
+| `CHUNK_CHAR_OVERLAP` | No       | `180`                         | Characters overlapped between chunks                                  |
+| `ENABLE_CORS`        | No       | `true`                        | Enable CORS for browsers                                              |
+| `WORKERS`            | No       | `2`                           | Gunicorn workers                                                      |
+| `TIMEOUT`            | No       | `120`                         | Gunicorn worker timeout (seconds)                                     |
+
+> Note: This app supports both [OpenRouter](https://openrouter.ai) and [OpenAI](https://platform.openai.com) APIs.  
+> To switch between them, change the environment variable and function used in `app.py` (`call_openai` vs `call_openrouter`).
+> To use OpenAI instead of OpenRouter, change the environment variable to `OPENAI_API_KEY` and ensure your code calls `call_openai()`.
 
 ## Troubleshooting
 
