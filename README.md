@@ -1,92 +1,114 @@
-#  HackRx 6.0 – Intelligent Policy Query API
+# HackRx Retrieval QA API
 
-This project implements a lightweight and accurate PDF-based Q&A API for insurance policy documents, designed to meet the **HackRx 6.0 Problem Statement Q1**:
-
-> "Design an LLM-powered Intelligent Query–Retrieval System that processes large documents (PDF, DOCX, emails), matches relevant clauses, and returns explainable answers."
-
----
-
-##  Features
-
-- ✅ Accepts **PDF URLs** of insurance policy documents
-- ✅ Accepts **multiple natural-language questions**
-- ✅ Uses **Google Gemini 2.0 Flash** for fast and accurate responses
-- ✅ FastAPI-based `/hackrx/run` endpoint
-- ✅ Deployment-ready for Render or any cloud platform
+A FastAPI-based retrieval-augmented question answering API.  
+It:
+- Downloads and extracts text from a PDF URL
+- Chunks text and builds embeddings with [Sentence Transformers](https://www.sbert.net/)
+- Indexes with [FAISS](https://faiss.ai/) for similarity search
+- Sends top-k context to an LLM via [OpenRouter](https://openrouter.ai/)
+- Returns answers with matched evidence chunks
 
 ---
 
-##  Installation
+## Features
+- **PDF ingestion** from any URL (with size/page limits for safety)
+- **Chunking with overlap** for better context retention
+- **Cosine similarity search** using FAISS
+- **Multiple chunk context** for improved LLM answers
+- **Singleton model loading** for speed
+- **OpenRouter API integration** (Claude, GPT, etc.)
+- **CORS support** for browser-based clients
+- **Docker-ready** for Render or any container hosting
+
+---
+
+## Requirements
+
+- Python **3.11**
+- [OpenRouter API key](https://openrouter.ai/keys)
+- Internet access (to fetch PDFs and call OpenRouter)
+
+---
+
+## Installation (Local)
 
 ```bash
-git clone https://github.com/<your-team>/<your-repo>.git
-cd <your-repo>
+# 1. Clone repository
+git clone https://github.com/yourusername/hackrx-retrieval-qa.git
+cd hackrx-retrieval-qa
+
+# 2. Create virtual environment
+python3.11 -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
+
+# 4. Set environment variables
+export OPENROUTER_API_KEY="your_key_here"
+# Optional overrides:
+# export OPENROUTER_MODEL="anthropic/claude-3.5-sonnet"
+# export TOP_K=3
+
+# 5. Run server locally
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+
 ```
 ---
-###  Environment Variables
-- Create a .env file or set your environment variables as:
-- GEMINI_API_KEY=your_gemini_api_key_here
-- To generate a Gemini API key: https://makersuite.google.com/app/apikey
----
 
-###  API Endpoint
+## API Usage
+
+### Health Check
+```bash
+curl http://localhost:8000/health
+```
+Retrieval QA Endpoint
 POST /hackrx/run
-
-Request Body:
-```bash
+```
 {
-  "documents": "<PDF_URL>",
+  "documents": "https://example.com/mydoc.pdf",
   "questions": [
-    "What is the grace period?",
-    "Does the policy cover maternity expenses?"
-  ]
+    "What is the policy on data retention?",
+    "Who is the responsible authority?"
+  ],
+  "top_k": 3,
+  "max_pages": 50
 }
 ```
-Response Body:
-```bash
+Example Response:
+```
 {
-  "answers": [
-    "The grace period is 30 days from due date...",
-    "Yes, maternity expenses are covered after 9 months..."
-  ]
+  "answers": {
+    "What is the policy on data retention?": {
+      "answer": "Data retention is limited to 3 years unless legally required otherwise.",
+      "evidence": [
+        {
+          "text": "Data retention shall not exceed three years...",
+          "score": 0.9123,
+          "index": 5
+        }
+      ]
+    }
+  }
 }
 ```
----
-###  Example Test (using cURL) 
-```bash
-curl -X POST https://your-app.onrender.com/hackrx/run \
-  -H "Content-Type: application/json" \
-  -d '{
-    "documents": "https://example.com/policy.pdf",
-    "questions": [
-      "What is the waiting period for pre-existing conditions?",
-      "Does this policy offer cashless hospitalization?"
-    ]
-}'
+## Docker Deployment
+Build:
 ```
----
- Submission Criteria Met
- - /hackrx/run POST endpoint
-
- - Accepts a PDF URL and a list of questions
-
- - Returns answers in clean structured JSON
-
- - Based on real LLM (Gemini 2.0 Flash)
-
- - Lightweight, accurate, explainable, deployable
- 
----
-###  Authors
-- Team Name: AVENGERS_404
-
-- Sartaj Singh Virdi
-
-- Gurkirat Singh
-
-- Prabhpreet Singh
-
-###  License
-
-MIT License
+docker build -t hackrx-qa .
+```
+Run:
+```
+docker run -p 8000:8000 \
+  -e OPENROUTER_API_KEY="your_key_here" \
+  hackrx-qa
+```
+API will be available at:
+```
+http://localhost:8000
+```
+Set the environment variable:
+```
+OPENROUTER_API_KEY=your_key_here
+```
