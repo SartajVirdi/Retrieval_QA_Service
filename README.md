@@ -3,6 +3,10 @@
   <img src="assets/logo.png" alt="Retrieval QA Service Logo" align="right" width="120"/>
 </a>
 
+[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=SartajVirdi/Retrieval_QA_Service)
+
+> ⚠️ After deployment, make sure to add your `OPENROUTER_API_KEY` in the environment variables section of the Koyeb dashboard.
+
 A FastAPI-based retrieval-augmented question answering API.  
 It:
 - Downloads and extracts text from a PDF URL
