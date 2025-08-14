@@ -36,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://127.0.0.1:${PORT:-8000}/health || exit 1
 
 # Start server; Render sets $PORT. Tune via WORKERS/TIMEOUT envs if needed.
-CMD ["sh", "-c", "gunicorn app:app -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT:-8000} --timeout ${TIMEOUT:-120}"]
+CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT:-8000} --timeout ${TIMEOUT:-120}"]
