@@ -350,7 +350,7 @@ async def hackrx_query(payload: QARequest):
             context_chunks = [chunks[i] for i in top_indices]
 
             prompt = build_prompt(context_chunks, q)
-            llm_answer = await run_in_threadpool(call_openrouter, prompt, settings.REQUEST_TIMEOUT_SECONDS)
+            llm_answer = await run_in_threadpool(call_openai, prompt, settings.REQUEST_TIMEOUT_SECONDS)
 
             evidence = [
                 ChunkEvidence(text=chunks[i], score=float(s), index=int(i)) for i, s in zip(top_indices, top_scores)
