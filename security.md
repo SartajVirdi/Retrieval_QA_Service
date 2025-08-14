@@ -35,7 +35,7 @@ Safe-harbor: If your testing follows the guidelines below and avoids privacy vio
 - Public deployments of this service under our control (e.g., Koyeb).
 
 **Out of scope**
-- Third-party models and APIs (e.g., OpenRouter, Anthropic/GPT backends).
+- Third-party models and APIs (e.g., OpenAI GPT backends).
 - DoS/volumetric attacks and automated fuzzing at destructive rates.
 - Social engineering of maintainers, hosting providers, or users.
 
@@ -73,7 +73,7 @@ We enforce the following on the default protected branch:
 ### Secrets Management
 - Secrets are **never committed** to the repo. Use environment variables at runtime.
 - Required secrets:
-  - `OPENROUTER_API_KEY`
+- `OPENAI_API_KEY`
 - Rotation policy:
   - Rotate keys immediately if exposure is suspected.
   - Remove exposed keys from commit history (if any) and invalidate them upstream.
@@ -118,7 +118,7 @@ If in doubt, contact **dragontech172@gmail.com** before proceeding.
 - [ ] Configure CODEOWNERS for critical paths (`app/`, `Dockerfile`, CI).
 - [ ] Restrict CORS in production (`ENABLE_CORS=false` or set explicit origins).
 - [ ] Ensure logs redact `Authorization` and environment variables.
-- [ ] Rotate `OPENROUTER_API_KEY` at least quarterly or upon suspicion.
+- [ ] Rotate `OPENAI_API_KEY` at least quarterly or upon suspicion.
 - [ ] Periodically rebuild images to pick up base-image security patches.
 
 ---
