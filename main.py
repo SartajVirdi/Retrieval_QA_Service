@@ -1,8 +1,6 @@
-# app.py
+# main.py
 import io
 import logging
-import math
-import os
 import sys
 import traceback
 from typing import Dict, List, Optional, Tuple
@@ -20,34 +18,29 @@ from starlette.concurrency import run_in_threadpool
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
-
 # -----------------------------
 # Settings & Configuration
 # -----------------------------
 class Settings(BaseSettings):
+    # Only OpenAI
     OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
 
-    # Retrieval/config knobs
+    # Retrieval / config knobs
     SENTENCE_MODEL_NAME: str = Field("all-MiniLM-L6-v2", env="SENTENCE_MODEL_NAME")
     MAX_PDF_MB: int = Field(20, env="MAX_PDF_MB")
     MAX_PDF_PAGES: int = Field(200, env="MAX_PDF_PAGES")
-    CHUNK_CHAR_TARGET: int = Field(1200, env="CHUNK_CHAR_TARGET")  # aim for ~150-250 tokens
+    CHUNK_CHAR_TARGET: int = Field(1200, env="CHUNK_CHAR_TARGET")
     CHUNK_CHAR_OVERLAP: int = Field(180, env="CHUNK_CHAR_OVERLAP")
-    TOP_K: int = Field(3, env="TOP_K")  # number of chunks to send as context
+    TOP_K: int = Field(3, env="TOP_K")
     REQUEST_TIMEOUT_SECONDS: int = Field(60, env="REQUEST_TIMEOUT_SECONDS")
     ENABLE_CORS: bool = Field(True, env="ENABLE_CORS")
 
     class Config:
         case_sensitive = True
 
-
-    class Config:
-        case_sensitive = True
-
-
 settings = Settings()
 
-# Configure logging early
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -57,9 +50,8 @@ logger = logging.getLogger("hackrx-app")
 logger.info("App booting")
 
 # Validate key explicitly for clear startup failure
-if not settings.OPENROUTER_API_KEY:
-    raise ValueError("OPENROUTER_API_KEY is required")
-
+if not settings.OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY is required")
 
 # -----------------------------
 # HTTP Session with Retries
@@ -80,9 +72,7 @@ def build_session() -> requests.Session:
     sess.mount("https://", adapter)
     return sess
 
-
 SESSION = build_session()
-
 
 # -----------------------------
 # Sentence Transformer Singleton
@@ -98,15 +88,14 @@ class EmbeddingSingleton:
             logger.info("Model loaded")
         return cls._model
 
-
 # -----------------------------
 # Schemas
 # -----------------------------
 class QARequest(BaseModel):
     documents: HttpUrl
     questions: List[str]
-    top_k: Optional[int] = None  # override default TOP_K per-request
-    max_pages: Optional[int] = None  # override default MAX_PDF_PAGES per-request
+    top_k: Optional[int] = None
+    max_pages: Optional[int] = None
 
     @validator("questions")
     def non_empty_questions(cls, v: List[str]) -> List[str]:
@@ -114,21 +103,17 @@ class QARequest(BaseModel):
             raise ValueError("questions must contain at least one question")
         return v
 
-
 class ChunkEvidence(BaseModel):
     text: str
     score: float
     index: int
 
-
 class SingleAnswer(BaseModel):
     answer: str
     evidence: List[ChunkEvidence]
 
-
 class QAResponse(BaseModel):
     answers: Dict[str, SingleAnswer]
-
 
 # -----------------------------
 # Utilities
@@ -138,7 +123,6 @@ def _enforce_size_limit(resp: requests.Response, max_mb: int) -> bytes:
     if size and size > max_mb * 1024 * 1024:
         raise ValueError(f"PDF too large: {size / (1024 * 1024):.1f} MB exceeds limit of {max_mb} MB")
 
-    # Stream with a hard cap, even if server omitted Content-Length
     cap = max_mb * 1024 * 1024
     buf = io.BytesIO()
     for chunk in resp.iter_content(chunk_size=1 << 14):  # 16KB
@@ -148,7 +132,6 @@ def _enforce_size_limit(resp: requests.Response, max_mb: int) -> bytes:
             buf.write(chunk)
     return buf.getvalue()
 
-
 def fetch_pdf_bytes(url: str, timeout: int) -> bytes:
     logger.info("Downloading PDF from %s", url)
     headers = {"User-Agent": "hackrx-submission/1.0"}
@@ -156,7 +139,6 @@ def fetch_pdf_bytes(url: str, timeout: int) -> bytes:
     if resp.status_code >= 400:
         raise ValueError(f"Failed to fetch PDF (status {resp.status_code})")
     return _enforce_size_limit(resp, settings.MAX_PDF_MB)
-
 
 def extract_text_from_pdf_bytes(data: bytes, max_pages: int) -> str:
     with fitz.open(stream=data, filetype="pdf") as doc:
@@ -173,17 +155,14 @@ def extract_text_from_pdf_bytes(data: bytes, max_pages: int) -> str:
         logger.info("Extracted text from %d pages", pages_to_read)
         return text
 
-
 def _merge_small_blocks(blocks: List[str], target_len: int, overlap: int) -> List[str]:
     merged: List[str] = []
     cursor = 0
     while cursor < len(blocks):
         cur = blocks[cursor]
-        # keep extending until close to target_len
         j = cursor + 1
         while j < len(blocks) and len(cur) < target_len:
             nxt = blocks[j]
-            # add a newline separator when merging paragraphs
             cur = (cur + "\n\n" + nxt).strip()
             j += 1
         merged.append(cur)
@@ -191,10 +170,7 @@ def _merge_small_blocks(blocks: List[str], target_len: int, overlap: int) -> Lis
         if j >= len(blocks):
             break
 
-        # compute char-based overlap move
-        # back up by "overlap" within the freshly built chunk, approximated via step size
         step_chars = max(1, len(cur) - overlap)
-        # estimate how many original blocks correspond to step_chars; fallback to 1
         acc = 0
         step_blocks = 0
         for k in range(cursor, j):
@@ -205,31 +181,22 @@ def _merge_small_blocks(blocks: List[str], target_len: int, overlap: int) -> Lis
         cursor = cursor + max(1, step_blocks)
     return merged
 
-
 def chunk_text(text: str, target_chars: int, overlap_chars: int) -> List[str]:
-    # Start with paragraph-level splits
     raw_paras = [p.strip() for p in text.split("\n\n") if p.strip()]
     if not raw_paras:
         return []
-
-    # Merge into roughly target-sized chunks with overlap
     chunks = _merge_small_blocks(raw_paras, target_chars, overlap_chars)
-    # Guardrails: drop ultra-short remnants and de-duplicate whitespace
     norm = [c.strip() for c in chunks if len(c.strip()) > 50]
     return norm
-
 
 def normalize(vecs: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-12
     return vecs / norms
 
-
 def build_index(embeddings: np.ndarray) -> faiss.Index:
-    # Use inner product over normalized vectors -> cosine similarity
     dim = embeddings.shape[1]
     index = faiss.IndexFlatIP(dim)
     return index
-
 
 def top_k_search(
     model: SentenceTransformer,
@@ -237,25 +204,20 @@ def top_k_search(
     query: str,
     k: int,
 ) -> List[Tuple[int, float]]:
-    # Embed chunks once per document
     chunk_embeddings = model.encode(chunks, convert_to_numpy=True)
     chunk_embeddings = normalize(chunk_embeddings).astype("float32")
 
-    # Build IP index
     index = build_index(chunk_embeddings)
     index.add(chunk_embeddings)
 
-    # Embed query
     q = model.encode([query], convert_to_numpy=True)
     q = normalize(q).astype("float32")
 
-    # Search
     k = max(1, min(k, len(chunks)))
     D, I = index.search(q, k)
     indices = I[0].tolist()
     scores = D[0].tolist()
     return list(zip(indices, scores))
-
 
 def build_prompt(context_chunks: List[str], question: str) -> str:
     context = "\n\n---\n\n".join(context_chunks)
@@ -265,16 +227,17 @@ def build_prompt(context_chunks: List[str], question: str) -> str:
         f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:"
     )
 
-
 def call_openai(prompt: str, timeout: int) -> str:
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",  # You can rename this env var to OPENAI_API_KEY if you prefer
+        "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "gpt-3.5-turbo",  # or "gpt-4"
+        "model": "gpt-3.5-turbo",  # or "gpt-4o-mini", "gpt-4o", etc., depending on your account
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
+        # keep responses short to save tokens
+        "max_tokens": 384,
     }
     resp = SESSION.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=timeout)
     if resp.status_code >= 400:
@@ -284,8 +247,6 @@ def call_openai(prompt: str, timeout: int) -> str:
         return data["choices"][0]["message"]["content"]
     except Exception as e:
         raise ValueError(f"Unexpected OpenAI response schema: {e}; body: {str(data)[:300]}")
-
-
 
 # -----------------------------
 # FastAPI App
@@ -301,22 +262,18 @@ if settings.ENABLE_CORS:
         allow_headers=["*"],
     )
 
-
 @app.get("/")
 def root():
     return {"status": "API is running"}
-
 
 @app.get("/health")
 def health():
     return {"ok": True}
 
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error: %s", exc)
     return JSONResponse(status_code=500, content={"error": str(exc)})
-
 
 @app.post("/hackrx/run", response_model=QAResponse)
 async def hackrx_query(payload: QARequest):
@@ -342,11 +299,8 @@ async def hackrx_query(payload: QARequest):
 
         # 4) Answer each question
         answers: Dict[str, SingleAnswer] = {}
-
         for q in payload.questions:
             results = await run_in_threadpool(top_k_search, model, chunks, q, top_k)
-
-            # Collect top-k context and evidence
             top_indices = [idx for idx, _ in results]
             top_scores = [score for _, score in results]
             context_chunks = [chunks[i] for i in top_indices]
@@ -359,7 +313,11 @@ async def hackrx_query(payload: QARequest):
             ]
             answers[q] = SingleAnswer(answer=llm_answer, evidence=evidence)
 
-            logger.info("Answered question with top-%d context; best score=%.4f", len(results), max(top_scores) if top_scores else float("nan"))
+            logger.info(
+                "Answered question with top-%d context; best score=%.4f",
+                len(results),
+                max(top_scores) if top_scores else float("nan"),
+            )
 
         return QAResponse(answers=answers)
 
@@ -367,3 +325,8 @@ async def hackrx_query(payload: QARequest):
         logger.error("Error during processing: %s", e)
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+# Optional: allow `python main.py` locally
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
