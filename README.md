@@ -1,5 +1,7 @@
 # HackRx Retrieval QA API
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/SartajVirdi/Retrieval_QA_Service)
+
 A FastAPI-based retrieval-augmented question answering API.  
 It:
 - Downloads and extracts text from a PDF URL
