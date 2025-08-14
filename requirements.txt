@@ -1,11 +1,22 @@
-fastapi
-uvicorn
-gunicorn
-requests
-pydantic
-python-multipart
-numpy
-faiss-cpu
-sentence-transformers
-pymupdf
-openai
+fastapi==0.110.2
+uvicorn[standard]==0.29.0
+gunicorn==21.2.0
+
+# PDF processing
+PyMuPDF==1.24.2
+
+# HTTP client
+requests==2.31.0
+
+# Data / math
+numpy==1.26.4
+faiss-cpu==1.7.4
+
+# Embeddings
+sentence-transformers==2.6.1
+
+# Pydantic v1 (required by FastAPI 0.110.x and your code)
+pydantic==1.10.14
+
+# CORS middleware
+python-multipart==0.0.9
