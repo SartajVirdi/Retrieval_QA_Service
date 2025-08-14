@@ -264,25 +264,25 @@ def build_prompt(context_chunks: List[str], question: str) -> str:
     )
 
 
-def call_openrouter(prompt: str, timeout: int) -> str:
+def call_openai(prompt: str, timeout: int) -> str:
     headers = {
-        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-        "HTTP-Referer": "https://chat.openai.com",
-        "X-Title": "hackrx-submission",
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",  # You can rename this env var to OPENAI_API_KEY if you prefer
+        "Content-Type": "application/json",
     }
     payload = {
-        "model": settings.OPENROUTER_MODEL,
+        "model": "gpt-3.5-turbo",  # or "gpt-4"
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
     }
-    resp = SESSION.post(settings.OPENROUTER_BASE_URL, json=payload, headers=headers, timeout=timeout)
+    resp = SESSION.post("https://api.openai.com/v1/chat/completions", json=payload, headers=headers, timeout=timeout)
     if resp.status_code >= 400:
-        raise ValueError(f"OpenRouter error {resp.status_code}: {resp.text[:300]}")
+        raise ValueError(f"OpenAI error {resp.status_code}: {resp.text[:300]}")
     data = resp.json()
     try:
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        raise ValueError(f"Unexpected OpenRouter response schema: {e}; body: {str(data)[:300]}")
+        raise ValueError(f"Unexpected OpenAI response schema: {e}; body: {str(data)[:300]}")
+
 
 
 # -----------------------------
