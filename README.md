@@ -1,4 +1,7 @@
-# HackRx Retrieval QA API
+# Retrieval_QA_Service
+<a href="https://render.com/deploy?repo=https://github.com/<your-username>/<your-repo>">
+  <img src="assets/logo.png" alt="Retrieval QA Service Logo" align="right" width="120"/>
+</a>
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/SartajVirdi/Retrieval_QA_Service)
 
@@ -8,7 +11,6 @@ It:
 - Chunks text and builds embeddings with [Sentence Transformers](https://www.sbert.net/)
 - Indexes with [FAISS](https://faiss.ai/) for similarity search
 - Sends top-k context to an LLM via [OpenRouter](https://openrouter.ai/)
-- Returns answers with matched evidence chunks
 
 ---
 
