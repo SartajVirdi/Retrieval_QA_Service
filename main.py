@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     SENTENCE_MODEL_NAME: str = Field("all-MiniLM-L6-v2", env="SENTENCE_MODEL_NAME")
     MAX_PDF_MB: int = Field(20, env="MAX_PDF_MB")
     MAX_PDF_PAGES: int = Field(200, env="MAX_PDF_PAGES")
-    CHUNK_CHAR_TARGET: int = Field(800, env="CHUNK_CHAR_TARGET")  # aim for ~150-250 tokens
+    CHUNK_CHAR_TARGET: int = Field(600, env="CHUNK_CHAR_TARGET")  # aim for ~150-250 tokens
     CHUNK_CHAR_OVERLAP: int = Field(180, env="CHUNK_CHAR_OVERLAP")
     TOP_K: int = Field(1, env="TOP_K")  # number of chunks to send as context
     REQUEST_TIMEOUT_SECONDS: int = Field(60, env="REQUEST_TIMEOUT_SECONDS")
