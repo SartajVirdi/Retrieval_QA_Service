@@ -5,14 +5,14 @@
 
 [![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=git&repository=SartajVirdi/Retrieval_QA_Service)
 
->⚠️ After deployment, make sure to add your OPENAI_API_KEY (or OPENROUTER_API_KEY, depending on provider) in the environment variables section of the Koyeb dashboard.
+> ⚠️ After deployment, make sure to add your `OPENAI_API_KEY` in the environment variables section of the Koyeb dashboard.
 
 A FastAPI-based retrieval-augmented question answering API.  
 It:
 - Downloads and extracts text from a PDF URL
 - Chunks text and builds embeddings with [Sentence Transformers](https://www.sbert.net/)
 - Indexes with [FAISS](https://faiss.ai/) for similarity search
-- Sends top-k context to an LLM via OpenAI API key ([https://platform.openai.com/account/api-keys](https://platform.openai.com/account/api-keys)) or [OpenRouter key](https://openrouter.ai/keys)
+- Sends top-k context to an LLM via [OpenAI API key](https://platform.openai.com/account/api-keys)
 
 ---
 
@@ -22,7 +22,7 @@ It:
 - **Cosine similarity search** using FAISS
 - **Multiple chunk context** for improved LLM answers
 - **Singleton model loading** for speed
-- **OpenRouter API integration** (Claude, GPT, etc.)
+- **OPENAI API integration** 
 - **CORS support** for browser-based clients
 - **Docker-ready** (deploys cleanly on Koyeb)
 
@@ -31,8 +31,7 @@ It:
 ## Requirements
 
 - Python **3.11**
-- [OpenRouter API key](https://openrouter.ai/keys)
-- Internet access (to fetch PDFs and call OpenRouter)
+- OpenAI API key (https://platform.openai.com/account/api-keys)
 
 ---
 
@@ -52,9 +51,9 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # 4) Set env
-export OPENROUTER_API_KEY="your_key_here"
+export OPENAI_API_KEY="your_key_here"
 # Optional:
-# export OPENROUTER_MODEL="anthropic/claude-3.5-sonnet"
+# export OPENAI_MODEL="gpt-4o-mini"
 # export TOP_K=3
 
 # 5) Run locally (entry file is main.py)
@@ -107,17 +106,14 @@ docker build -t hackrx-qa .
 Run:
 ```
 docker run -p 8000:8000 \
-  -e OPENROUTER_API_KEY="your_key_here" \
+  -e OPENAI_API_KEY="your_key_here" \
   hackrx-qa
 ```
 API will be available at:
 ```
 http://localhost:8000
 ```
-Set the environment variable:
-```
-OPENROUTER_API_KEY=your_key_here
-```
+
 ## Deploying on Koyeb
 This repo includes a Dockerfile and .dockerignore. No code changes needed.
 - Create the service
@@ -129,17 +125,15 @@ This repo includes a Dockerfile and .dockerignore. No code changes needed.
 gunicorn main:app -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT} --timeout ${TIMEOUT:-120}
 ```
 ## Environment variables:
-- OPENAI_API_KEY = your OpenAI key (required if using OpenAI)
-- OPENROUTER_API_KEY = your OpenRouter key (required if using OpenRouter)
-- Optional: OPENROUTER_MODEL=anthropic/claude-3.5-sonnet, WORKERS=2, TIMEOUT=120,
+- OPENAI_API_KEY = your OpenAI key
 - ENABLE_CORS=true, MAX_PDF_MB=20, MAX_PDF_PAGES=200,
 - CHUNK_CHAR_TARGET=1200, CHUNK_CHAR_OVERLAP=180.
 ## Ports:
-- Port: 8000
+- Port: 8000 (locally)
 - Protocol: HTTP
 - Path: /health
 - Public: ON
-- Deploy.
+- On Koyeb, the PORT environment variable is set automatically — the Dockerfile is configured to use it.
 ## Verify
 Replace <your-app>.koyeb.app with your domain:
 ```bash
@@ -162,35 +156,34 @@ curl -X POST "https://<your-app>.koyeb.app/hackrx/run" \
 - CORS: Keep ENABLE_CORS=true for browser clients; restrict origins in code for production.
 ## Environment Variables
 
-| Variable             | Required | Default                       | Description                                                           |
-|----------------------|----------|-------------------------------|-----------------------------------------------------------------------|
-| `OPENAI_API_KEY`     | Yes*     | —                             | OpenAI API key (used if calling OpenAI directly)                      |
-| `OPENROUTER_API_KEY` | Yes*     | —                             | OpenRouter API key (used if calling via OpenRouter)                   |
-| `OPENROUTER_MODEL`   | No       | `anthropic/claude-3.5-sonnet` | LLM model ID for OpenRouter                                           |
-| `TOP_K`              | No       | `3`                           | Top chunks to provide as context                                      |
-| `MAX_PDF_MB`         | No       | `20`                          | Max PDF size (MB)                                                     |
-| `MAX_PDF_PAGES`      | No       | `200`                         | Max pages to extract                                                  |
-| `CHUNK_CHAR_TARGET`  | No       | `1200`                        | Target characters per chunk                                           |
-| `CHUNK_CHAR_OVERLAP` | No       | `180`                         | Characters overlapped between chunks                                  |
-| `ENABLE_CORS`        | No       | `true`                        | Enable CORS for browsers                                              |
-| `WORKERS`            | No       | `2`                           | Gunicorn workers                                                      |
-| `TIMEOUT`            | No       | `120`                         | Gunicorn worker timeout (seconds)                                     |
+| Variable             | Required | Default | Description                          |
+|----------------------|----------|---------|--------------------------------------|
+| `OPENAI_API_KEY`     | Yes      | —       | OpenAI API key                       |
+| `TOP_K`              | No       | `3`     | Top chunks to provide as context     |
+| `MAX_PDF_MB`         | No       | `20`    | Max PDF size (MB)                    |
+| `MAX_PDF_PAGES`      | No       | `200`   | Max pages to extract                 |
+| `CHUNK_CHAR_TARGET`  | No       | `1200`  | Target characters per chunk          |
+| `CHUNK_CHAR_OVERLAP` | No       | `180`   | Characters overlapped between chunks |
+| `ENABLE_CORS`        | No       | `true`  | Enable CORS for browsers             |
+| `WORKERS`            | No       | `2`     | Gunicorn workers                     |
+| `TIMEOUT`            | No       | `120`   | Gunicorn worker timeout (seconds)    |
 
-> Note: This app supports both [OpenRouter](https://openrouter.ai) and [OpenAI](https://platform.openai.com) APIs.  
-> To switch between them, change the environment variable and function used in `app.py` (`call_openai` vs `call_openrouter`).
-> To use OpenAI instead of OpenRouter, change the environment variable to `OPENAI_API_KEY` and ensure your code calls `call_openai()`.
+> **Note:** This app uses the [OpenAI API](https://platform.openai.com) for LLM calls.
+> Set the environment variable `OPENAI_API_KEY` in your deployment settings or `.env` file.  
+> Ensure your code calls `call_openai()` when making API requests.
 
 ## Troubleshooting
 
-ModuleNotFoundError: app
-- Your entry file is main.py. Ensure the start command targets main:app (see Koyeb section).
+**ModuleNotFoundError: app**  
+- Your entry file is `main.py`. Ensure the start command targets `main:app` (see Koyeb section).
 
-401/403 from OpenRouter
-- Check OPENROUTER_API_KEY in Koyeb → Environment.
+**401/403 from OpenAI**  
+- Check `OPENAI_API_KEY` in Koyeb → Environment.
 
-PDF too large / slow
-- Adjust MAX_PDF_MB / MAX_PDF_PAGES, or test with a smaller document.
+**PDF too large / slow**  
+- Adjust `MAX_PDF_MB` / `MAX_PDF_PAGES`, or test with a smaller document.
 
-CORS issues in browser
-- Keep ENABLE_CORS=true or proxy via your frontend; for production, restrict allowed origins in code.
+**CORS issues in browser**  
+- Keep `ENABLE_CORS=true` or proxy via your frontend; for production, restrict allowed origins in code.
+
 
