@@ -32,7 +32,7 @@ Safe-harbor: If your testing follows the guidelines below and avoids privacy vio
 **In scope**
 - Source code in this repository (FastAPI app, retrieval/indexing logic).
 - Docker image built from the provided `Dockerfile`.
-- Public deployments of this service under our control (e.g., Render).
+- Public deployments of this service under our control (e.g., Koyeb).
 
 **Out of scope**
 - Third-party models and APIs (e.g., OpenRouter, Anthropic/GPT backends).
