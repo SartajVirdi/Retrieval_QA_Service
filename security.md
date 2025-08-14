@@ -88,7 +88,7 @@ We enforce the following on the default protected branch:
 
 ### Network & Runtime
 - The container runs as a **non-root** user.
-- Only port `8000` is exposed internally; on Render, the service binds to `$PORT`.
+- Only port `8000` is exposed internally; on Koyeb, the service binds to `$PORT`.
 - Health endpoint: `/health` (no secrets, no DB access).
 - Prefer HTTPS on the edge; do not terminate TLS inside the container.
 
