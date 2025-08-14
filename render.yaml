@@ -1,46 +1,26 @@
-# render.yaml
 services:
   - type: web
-    name: hackrx-retrieval-qa
-    env: docker
-    plan: starter            # pick: free | starter | standard | pro
-    autoDeploy: true         # build & deploy on every push to the tracked branch
-    branch: main             # change if your default branch differs
-    healthCheckPath: /health
-    # Optional: pin region (uncomment & pick one, e.g. oregon, frankfurt)
-    # region: frankfurt
-
-    # Expect secrets from the dashboard (do NOT commit secrets to git)
+    name: retrieval-qa-service
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: OPENROUTER_API_KEY
-        sync: false          # set this in Render's dashboard
-      # Sensible defaults that you can override in the dashboard if needed:
-      - key: OPENROUTER_MODEL
-        value: anthropic/claude-3.5-sonnet
-      - key: WORKERS
-        value: "2"
-      - key: TIMEOUT
-        value: "120"
+      - key: OPENAI_API_KEY
+        sync: false   # Set your OpenAI key in Render dashboard
+      - key: SENTENCE_MODEL_NAME
+        value: all-MiniLM-L6-v2
+      - key: MAX_PDF_MB
+        value: 20
+      - key: MAX_PDF_PAGES
+        value: 200
+      - key: CHUNK_CHAR_TARGET
+        value: 1200
+      - key: CHUNK_CHAR_OVERLAP
+        value: 180
+      - key: TOP_K
+        value: 3
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: 60
       - key: ENABLE_CORS
         value: "true"
-      - key: MAX_PDF_MB
-        value: "20"
-      - key: MAX_PDF_PAGES
-        value: "200"
-      - key: CHUNK_CHAR_TARGET
-        value: "1200"
-      - key: CHUNK_CHAR_OVERLAP
-        value: "180"
-
-    # Optional: preview environments for PRs (useful for testing before merge)
-    previews:
-      generatePreviewDeployments: true
-
-    # Optional: restrict which paths trigger builds (keeps deploys fast)
-    # buildFilter:
-    #   paths:
-    #     - Dockerfile
-    #     - requirements.txt
-    #     - main.py
-    #     - app.py
-    #     - render.yaml
