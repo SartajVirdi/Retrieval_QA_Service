@@ -25,9 +25,7 @@ from requests.adapters import HTTPAdapter
 # Settings & Configuration
 # -----------------------------
 class Settings(BaseSettings):
-    OPENROUTER_API_KEY: str = Field(..., env="OPENROUTER_API_KEY")
-    OPENROUTER_MODEL: str = Field("anthropic/claude-3.5-sonnet", env="OPENROUTER_MODEL")
-    OPENROUTER_BASE_URL: str = Field("https://openrouter.ai/api/v1/chat/completions", env="OPENROUTER_BASE_URL")
+    OPENAI_API_KEY: str = Field(..., env="OPENAI_API_KEY")
 
     # Retrieval/config knobs
     SENTENCE_MODEL_NAME: str = Field("all-MiniLM-L6-v2", env="SENTENCE_MODEL_NAME")
@@ -38,6 +36,10 @@ class Settings(BaseSettings):
     TOP_K: int = Field(3, env="TOP_K")  # number of chunks to send as context
     REQUEST_TIMEOUT_SECONDS: int = Field(60, env="REQUEST_TIMEOUT_SECONDS")
     ENABLE_CORS: bool = Field(True, env="ENABLE_CORS")
+
+    class Config:
+        case_sensitive = True
+
 
     class Config:
         case_sensitive = True
